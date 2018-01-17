@@ -1,0 +1,37 @@
+hash: df842bcac37f1acafdf98b825adf090b9389dcb1c188924edcd2317af04711f2
+updated: 2018-01-16T21:22:03.831459353+09:00
+imports:
+- name: github.com/alecthomas/log4go
+  version: 3fbce08846379ec7f4f6bc7fce6dd01ce28fae4c
+  repo: https://github.com/mattermost/log4go.git
+- name: github.com/gorilla/websocket
+  version: ea4d1f681babbce9545c9c5f3d5194a789c89f5b
+- name: github.com/mattermost/mattermost-server
+  version: 58defb7424773c75718f0173f4ace702cffa4f0e
+  subpackages:
+  - model
+  - plugin
+  - plugin/rpcplugin
+- name: github.com/nicksnyder/go-i18n
+  version: 0dc1626d56435e9d605a29875701721c54bc9bbd
+  subpackages:
+  - i18n
+  - i18n/bundle
+  - i18n/language
+  - i18n/translation
+- name: github.com/pborman/uuid
+  version: e790cca94e6cc75c7064b1332e63811d4aae1a53
+- name: github.com/pelletier/go-toml
+  version: 69d355db5304c0f7f809a2edc054553e7142f016
+- name: github.com/pkg/errors
+  version: e881fd58d78e04cf6d0de1217f8707c8cc2249bc
+- name: github.com/satori/go.uuid
+  version: f58768cc1a7a7e77a3bd49e98cdd21419399b6a3
+- name: golang.org/x/crypto
+  version: 728b753d0135da6801d45a38e6f43ff55779c5c2
+  subpackages:
+  - bcrypt
+  - blowfish
+- name: gopkg.in/yaml.v2
+  version: a3f3340b5840cee44f372bddb5880fcbc419b46a
+testImports: []

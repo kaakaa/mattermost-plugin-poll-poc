@@ -11,13 +11,14 @@ type PollOption struct {
 	Text string `json:"text"`
 }
 
-func (op *PollOption)toPostAction(pollId string) *model.PostAction {
+func (op *PollOption)toPostAction(siteURL, pollId string) *model.PostAction {
 	// TODO: fix url
-	url := fmt.Sprintf("http://localhost:8065/plugins/matterpoll/polls/%s/answers/%s/vote", pollId, op.ID)
+	url := fmt.Sprintf("%s/plugins/matterpoll/polls/%s/answers/%s/vote", siteURL, pollId, op.ID)
 	return &model.PostAction{
 		Name: op.Text,
 		Integration: &model.PostActionIntegration{
 			URL: url,
+			Context: map[string]interface{}{},
 		},
 	}
 }

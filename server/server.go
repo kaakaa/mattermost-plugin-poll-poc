@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"sync/atomic"
 
 	"github.com/mattermost/mattermost-server/model"
 	"github.com/mattermost/mattermost-server/plugin"
@@ -17,13 +16,13 @@ import (
 )
 
 var (
-	voteRoute = regexp.MustCompile(`/polls/([0-9a-z]+)/answers/([0-9]+)/vote`)
-	endPollRoute = regexp.MustCompile(`/polls/([0-9a-z]+)/end`)
+	// PollID is valid for alpha-numeric and hyphen(-)
+	voteRoute = regexp.MustCompile(`/polls/([0-9a-z-]+)/answers/([0-9]+)/vote`)
+	endPollRoute = regexp.MustCompile(`/polls/([0-9a-z-]+)/end`)
 )
 
 type MatterPollPlugin struct{
 	api plugin.API
-	configuration atomic.Value
 	store *store.MatterPollStore
 	hogeru string
 }
@@ -48,30 +47,29 @@ func (p MatterPollPlugin) ExecuteCommand(args *model.CommandArgs) (*model.Comman
 		return nil, model.NewAppError("here", "NewPollFromCommand", map[string]interface{}{}, err.Error(), 1)
 	}
 	if poll == nil {
-		return nil, model.NewAppError("here", "NilPoll", map[string]interface{}{}, "hoge", 1)
+		return nil, model.NewAppError("here", "NilPoll", map[string]interface{}{}, "", 1)
 	}
 	if err = p.store.CreatePoll(poll); err != nil {
-		return nil, model.NewAppError("here", "CreatePoll", map[string]interface{}{}, "hoge", 1)
+		return nil, model.NewAppError("here", "CreatePoll", map[string]interface{}{}, err.Error(), 1)
 	}
-	resp, err := poll.ToCommandResponseJson()
-	if err != nil {
-		return nil, model.NewAppError("here", "ToCommandResponse", map[string]interface{}{}, err.Error(), 1)
-	}
+	resp := poll.ToCommandResponseJson(args.SiteURL)
 	log.Printf("%v", resp.ToJson())
-	log.Printf("%v", resp.Attachments[0].Text)
-	log.Printf("%v", resp.Attachments[0].Actions[0].Integration)
-	log.Printf("%v", resp.Attachments[0].Actions[0].Integration.URL)
-	log.Printf("%v", resp.Attachments[0].Actions[0].Integration.Context)
 	return resp, nil
-
 }
 
+func responseIntegration(w http.ResponseWriter, resp string){
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprintf(w, resp)
+}
+ 
 func (p *MatterPollPlugin) handleVote(w http.ResponseWriter, r *http.Request) {
+	log.Println("Handle Vote")
 	defer r.Body.Close()
 	decoder := json.NewDecoder(r.Body)
 	var integrationReq model.PostActionIntegrationRequest
 	if err := decoder.Decode(&integrationReq); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
+		responseIntegration(w, err.Error())
 		return
 	}
 
@@ -81,8 +79,8 @@ func (p *MatterPollPlugin) handleVote(w http.ResponseWriter, r *http.Request) {
 	updated, err := p.store.Vote(pollId, voteId, integrationReq.UserId)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "Vote Error: %s", err)
-		return		
+		responseIntegration(w, err.Error())
+		return
 	}
 
 	var resp *model.PostActionIntegrationResponse
@@ -95,10 +93,10 @@ func (p *MatterPollPlugin) handleVote(w http.ResponseWriter, r *http.Request) {
 			EphemeralText: "Success to vote an answer",
 		}
 	}
-	b, err := json.Marshal(resp)
-	if err != nil {
+	b, e := json.Marshal(resp)
+	if e != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "Vote Error: %s", err)
+		responseIntegration(w, e.Error())
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -112,37 +110,43 @@ func (p *MatterPollPlugin) handleEndPoll(w http.ResponseWriter, r *http.Request)
 	var integrationReq model.PostActionIntegrationRequest
 	if err := decoder.Decode(&integrationReq); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
+		responseIntegration(w, err.Error())
 		return
 	}
 
 	matches := endPollRoute.FindAllStringSubmatch(r.URL.Path, 1)
 	pollId := matches[0][1]
+	log.Printf("EndPollID: %s", pollId)
 
 	answers, err := p.store.ReadPollAnswers(pollId)
+	log.Printf("Answers: %v", answers)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "Vote Error: %s", err)
+		responseIntegration(w, err.Error())
 		return
 	}
-	var summary map[string][]string
+	summary := map[string][]string{}
 	for user, answer := range answers {
 		if v, ok := summary[answer]; ok {
+			log.Printf("  - add summary: %v - %v", answer, user)
 			summary[answer] = append(v, user)
 		} else {
+			log.Printf("  - new summary: %v - %v", answer, user)
 			summary[answer] = []string{user}
 		}
 	}
+	log.Printf("%v", summary)
 
 	poll, err := p.store.ReadPoll(pollId)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "Vote Error: %s", err)
+		responseIntegration(w, err.Error())
 		return
 	}
 
 	var ret []string
 	for _, op := range poll.Options {
-		if v, ok := answers[op.ID]; ok {
+		if v, ok := summary[op.ID]; ok {
 			ret = append(ret, fmt.Sprintf("%s: %s: %v", op.ID, op.Text, v))
 		} else {
 			ret = append(ret, fmt.Sprintf("%s: %s: []", op.ID, op.Text))
@@ -153,10 +157,10 @@ func (p *MatterPollPlugin) handleEndPoll(w http.ResponseWriter, r *http.Request)
 			Message: strings.Join(ret, "\n"),
 		},
 	}
-	b, err := json.Marshal(resp)
+	b, e := json.Marshal(resp)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(w, "Vote Error: %s", err)
+		responseIntegration(w, e.Error())
 		return
 	}
 
@@ -169,33 +173,11 @@ func (p *MatterPollPlugin) handleEndPoll(w http.ResponseWriter, r *http.Request)
 func (p *MatterPollPlugin) OnActivate(api plugin.API) error {
 	p.api = api
 	p.store = store.NewMatterPollStore(api.KeyValueStore())
-	/*
-	if err := p.OnConfigurationChange(); err != nil {
-		return err
-	}
-	*/
-
-	/*
-	config := p.configuration.Load().(*Configuration)
-	if err := config.IsValid(); err != nil {
-		return err
-	}
-
-	p.hogeru = config.Hogeru
-	_, err := p.api.GetTeamByName("tttt")
-	if err != nil {
-		return err
-	}
-	*/
 	command := &model.Command{
-		Id: "hoge_plugin_command",
-		// TeamId: t.Id,
 		Trigger: "matterpoll",
-		// Method: "POST",
-		// URL: "/plugins/hoge1/hello",
 		AutoComplete: true,
-		AutoCompleteDesc: "hohohohogehgoehogheoghoehoge",
-		AutoCompleteHint: "ohogehogehogehoge",
+		AutoCompleteDesc: "sample",
+		AutoCompleteHint: "sample",
 	}
 	if err := p.api.RegisterCommand(command); err != nil {
 		return err
@@ -203,14 +185,6 @@ func (p *MatterPollPlugin) OnActivate(api plugin.API) error {
 	return nil
 }
 
-/*
-func (p *MatterPollPlugin)OnConfigurationChange() error {
-	var configuration interface{}
-	err := p.api.LoadPluginConfiguration(&configuration)
-	p.configuration.Store(&configuration)
-	return err
-}
-*/
 func main() {
 	rpcplugin.Main(&MatterPollPlugin{})
 }

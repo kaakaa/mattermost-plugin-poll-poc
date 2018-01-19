@@ -19,18 +19,17 @@ type Poll struct {
 	Options []PollOption `json:"options`
 }
 
-func NewPollFromCommand(args *model.CommandArgs) (*Poll, error) {
+func NewPollFromCommand(args *model.CommandArgs) (*Poll, *model.AppError) {
 	poll, err := parseCommandText(args.Command)
-	poll.CreatedAt = time.Now().UnixNano()
-
 	if err != nil {
-		return nil, err
+		return nil, model.NewAppError("NewPollFromCommand", "", nil, err.Error(), 0)
 	}
+
+	poll.CreatedAt = time.Now().UnixNano()
 	return poll, nil
 }
 
 func parseCommandText(text string) (*Poll, error) {
-	// TODO: not implemented yet
 	o := strings.TrimRight(strings.TrimLeft(strings.TrimSpace(strings.TrimPrefix(text, "/matterpoll")), "\""), "\"")
  	if o == "" {
 		 return nil, errors.New("Text Parse Error: " + text)
@@ -52,21 +51,21 @@ func parseCommandText(text string) (*Poll, error) {
 	}, nil
 }
 
-func PollFromJson(body io.Reader) (*Poll, error) {
+func PollFromJson(body io.Reader) (*Poll, *model.AppError) {
 	decoder := json.NewDecoder(body)
 	var poll Poll
 	if err := decoder.Decode(&poll); err != nil {
-		return nil, err
+		return nil, model.NewAppError("PollFromJson", "", nil, err.Error(), 0)
 	}
 	return &poll, nil
 }
 
-func (p *Poll)ToCommandResponseJson() (*model.CommandResponse, error) {
+func (p *Poll)ToCommandResponseJson(siteURL string) (*model.CommandResponse) {
 	var actions []*model.PostAction
 	for _, op := range p.Options {
-		actions = append(actions, op.toPostAction(p.ID))
+		actions = append(actions, op.toPostAction(siteURL, p.ID))
 	}
-	actions = append(actions, p.toEndPollAction())
+	actions = append(actions, p.toEndPollAction(siteURL))
 
 	response := &model.CommandResponse{
 		ResponseType: model.COMMAND_RESPONSE_TYPE_IN_CHANNEL,
@@ -78,15 +77,15 @@ func (p *Poll)ToCommandResponseJson() (*model.CommandResponse, error) {
 			},
 		},
 	}
-	return response, nil
+	return response
 }
 
-func (p *Poll)toEndPollAction() *model.PostAction {
+func (p *Poll)toEndPollAction(siteURL string) *model.PostAction {
 	return &model.PostAction{
-		Name: p.Text,
+		Name: "End Poll",
 		Integration: &model.PostActionIntegration {
 			// TODO: fix URL
-			URL: fmt.Sprintf("http://localhost:8065//plugins/matterpoll/polls/%s/end", p.ID),
+			URL: fmt.Sprintf("%s/plugins/matterpoll/polls/%s/end", siteURL, p.ID),
 		},
 	}
 }
